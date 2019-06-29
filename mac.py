@@ -1,6 +1,6 @@
 
 # import modules
-import socket 
+import socket
 #import IN
 import struct
 import binascii
@@ -9,7 +9,7 @@ import os
 
 import lowpan.message
 
-
+ETH_P_ALL = 0x03
 
 # if operating system is windows
 if os.name == "nt":
@@ -20,23 +20,21 @@ if os.name == "nt":
 
 # if operating system is linux
 else:
-	s=socket.socket(socket.PF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0800))
+	s=socket.socket(socket.PF_PACKET, socket.SOCK_RAW, 0)
 	#s.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE,b"usb0") #not work
-	s.bind(("usb0",socket.ntohs(0)))
-# create loop 
+	s.bind(("usb0",ETH_P_ALL))
+# create loop
 while True:
 
 	# Capture packets from network
-	#pkt = s.recvfrom(1500)
-	#print(pkt)
+	pkt = s.recvfrom(1500)
+	print(pkt)
 	#if pkt[1][0] == 'usb0':
 	#	print(pkt[1])
-	pkt = (b"hhfjjjfhhhfhf","hlelo")
-	print(type(pkt[0]))
 
 	# Parse the header to get type
-	hdr_version, hdr_type, hdr_length, hdr_xid = lowpan.message.parse_header(pkt[0])
-	print(hdr_version)
+	#hdr_version, hdr_type, hdr_length, hdr_xid = lowpan.message.parse_header(pkt[0])
+	#print(hdr_version)
 
-	
+
 
