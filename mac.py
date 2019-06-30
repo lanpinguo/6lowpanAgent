@@ -14,7 +14,7 @@ ETH_P_ALL = 0x03
 # if operating system is windows
 if os.name == "nt":
 	s = socket.socket(socket.AF_INET,socket.SOCK_RAW,socket.IPPROTO_IP)
-	s.bind(("YOUR_INTERFACE_IP",0))
+	s.bind(("192.168.2.103",0))
 	s.setsockopt(socket.IPPROTO_IP,socket.IP_HDRINCL,1)
 	s.ioctl(socket.SIO_RCVALL,socket.RCVALL_ON)
 

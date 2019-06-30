@@ -62,7 +62,7 @@ class message(lowpan.LPObject):
 		with q.group():
 			with q.indent(2):
 				q.breakable()
-				q.text("xid = ");
+				q.text("xid = ")
 				if self.xid != None:
 					q.text("%#x" % self.xid)
 				else:
@@ -101,11 +101,7 @@ class VLAN():
 		with q.group():
 			with q.indent(2):
 				q.breakable()
-				q.text("type = ");
-				if self.xid != None:
-					q.text("%#x" % self.type)
-				else:
-					q.text('None')
+				q.text("type = ")
 			q.breakable()
 		q.text('}')
 
