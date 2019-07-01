@@ -64,7 +64,7 @@ class VirtualTunnel(Thread):
     @var dbg_state Debug indication of state
     """
 
-    def __init__(self, switch=None, host='127.0.0.1', port=6653, max_pkts=1024):
+    def __init__(self, switch=None, host='192.168.2.200', port=1024, max_pkts=1024):
         Thread.__init__(self)
         # Socket related
         self.rcv_size = RCV_SIZE_DEFAULT
@@ -135,7 +135,7 @@ class VirtualTunnel(Thread):
             self.listen_socket.setsockopt(socket.SOL_SOCKET,
                                           socket.SO_REUSEADDR, 1)
             self.listen_socket.bind(sockaddr)
-            self.listen_socket.listen(LISTEN_QUEUE_SIZE)
+            self.switch_socket = self.listen_socket
 
     def filter_packet(self, rawmsg, hdr):
         """
@@ -176,8 +176,9 @@ class VirtualTunnel(Thread):
         """
 
         # snag any left over data from last read()
-        pkt = self.buffered_input + pkt
-        self.buffered_input = ""
+        print(pkt)
+        # = self.buffered_input + pkt
+        #self.buffered_input = ""
 
 
         # end of 'while offset < len(pkt)'
@@ -193,35 +194,10 @@ class VirtualTunnel(Thread):
         @returns 0 on success, -1 on error
         """
 
-        if self.passive and s and s == self.listen_socket:
-            if self.switch_socket:
-                self.logger.warning("Ignoring incoming connection; already connected to switch")
-                (sock, addr) = self.listen_socket.accept()
-                sock.close()
-                return 0
-
-            try:
-                (sock, addr) = self.listen_socket.accept()
-            except:
-                self.logger.warning("Error on listen socket accept")
-                return -1
-            self.logger.info(self.host+":"+str(self.port)+": Incoming connection from "+str(addr))
-
-            with self.connect_cv:
-                (self.switch_socket, self.switch_addr) = (sock, addr)
-                self.switch_socket.setsockopt(socket.IPPROTO_TCP,
-                                              socket.TCP_NODELAY, True)
-                if self.initial_hello:
-                    self.message_send(cfg_ofp.message.hello())
-                self.connect_cv.notify() # Notify anyone waiting
-
-            # Prevent further connections
-            self.listen_socket.close()
-            self.listen_socket = None
-        elif s and s == self.switch_socket:
+        if s and s == self.switch_socket:
             for idx in range(3): # debug: try a couple of times
                 try:
-                    pkt = self.switch_socket.recv(self.rcv_size)
+                    pkt = self.switch_socket.recvfrom(self.rcv_size)
                 except:
                     self.logger.warning("Error on switch read")
                     return -1
@@ -261,7 +237,7 @@ class VirtualTunnel(Thread):
             soc.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
             self.switch_addr = (self.switch, self.port)
             return soc
-        except  e:
+        except (StandardError, socket.error) as e:
             self.logger.error("Could not connect to %s at %d:: %s" % 
                               (self.switch, self.port, str(e)))
         return None
@@ -304,7 +280,7 @@ class VirtualTunnel(Thread):
                 print( sys.exc_info())
                 self.logger.error("Select error, disconnecting")
                 self.disconnect()
-
+   
             for s in sel_err:
                 self.logger.error("Got socket error on: " + str(s) + ", disconnecting")
                 self.disconnect()

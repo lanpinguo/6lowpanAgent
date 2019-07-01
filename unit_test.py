@@ -10,3 +10,9 @@ if __name__ == '__main__':
 	print(raw_pkt.layers)
 
 	vt = tunnel.VirtualTunnel()
+	vt.start()
+
+	while True:
+		data = input('>')
+		print(data)
+	vt.kill()
