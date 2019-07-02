@@ -106,7 +106,7 @@ class VirtualTunnel(Thread):
         self.host = host
         self.port = port
         self.dbg_state = "init"
-        self.logger = logging.getLogger("controller")
+        self.logger = logging.getLogger("VirtualTunnel")
         self.filter_packet_in = False # Drop "excessive" packet ins
         self.pkt_in_run = 0 # Count on run of packet ins
         self.pkt_in_filter_limit = 50 # Count on run of packet ins
@@ -275,7 +275,7 @@ class VirtualTunnel(Thread):
         while self.active:
             try:
                 sel_in, sel_out, sel_err = \
-                    select.select(self.sockets(), [], self.sockets(), 1)
+                    select.select(self.sockets(), [], self.sockets(), None)
             except:
                 print( sys.exc_info())
                 self.logger.error("Select error, disconnecting")
@@ -321,7 +321,7 @@ class VirtualTunnel(Thread):
                 self.active = False
         else:
             with self.connect_cv:
-                ofutils.timed_wait(self.connect_cv, lambda: self.switch_socket,
+                generic_util.timed_wait(self.connect_cv, lambda: self.switch_socket,
                                    timeout=timeout)
 
         return self.switch_socket is not None
@@ -367,21 +367,12 @@ class VirtualTunnel(Thread):
         """
 
         self.active = False
-        try:
-            self.switch_socket.shutdown(socket.SHUT_RDWR)
-        except:
-            self.logger.info("Ignoring switch soc shutdown error")
-        self.switch_socket = None
 
         try:
             self.listen_socket.shutdown(socket.SHUT_RDWR)
         except:
             self.logger.info("Ignoring listen soc shutdown error")
         self.listen_socket = None
-
-        # Wakeup condition variables on which controller may be wait
-        with self.xid_cv:
-            self.xid_cv.notifyAll()
 
         with self.connect_cv:
             self.connect_cv.notifyAll()
