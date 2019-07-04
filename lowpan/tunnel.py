@@ -21,11 +21,11 @@ def hex_dump_buffer(src, length=16):
     @returns A string showing the hex dump
     """
     result = ["\n"]
-    for i in xrange(0, len(src), length):
+    for i in range(0, len(src), length):		#Python3's range is Python2's xrange. There's no need to wrap an iter around it. 
        chars = src[i:i+length]
-       hex = ' '.join(["%02x" % ord(x) for x in chars])
-       printable = ''.join(["%s" % ((ord(x) <= 127 and
-                                     FILTER[ord(x)]) or '.') for x in chars])
+       hex = ' '.join(["%02x" % x for x in chars])
+       printable = ''.join(["%s" % ((x <= 127 and
+                                     FILTER[x]) or '.') for x in chars])
        result.append("%04x  %-*s  %s\n" % (i, length*3, hex, printable))
     return ''.join(result)
 
@@ -176,10 +176,10 @@ class VirtualTunnel(Thread):
         """
 
         # snag any left over data from last read()
-        print(pkt)
+        print(pkt[1])
         # = self.buffered_input + pkt
         #self.buffered_input = ""
-
+        print(hex_dump_buffer(pkt[0]))
 
         # end of 'while offset < len(pkt)'
         #   note that if offset = len(pkt), this is
