@@ -9,25 +9,9 @@ from threading import Thread
 from threading import Lock
 from threading import Condition
 from lowpan import generic_util
+import lowpan
 
-FILTER=''.join([(len(repr(chr(x)))==3) and chr(x) or '.' 
-                for x in range(256)])
 
-def hex_dump_buffer(src, length=16):
-    """
-    Convert src to a hex dump string and return the string
-    @param src The source buffer
-    @param length The number of bytes shown in each line
-    @returns A string showing the hex dump
-    """
-    result = ["\n"]
-    for i in range(0, len(src), length):		#Python3's range is Python2's xrange. There's no need to wrap an iter around it. 
-       chars = src[i:i+length]
-       hex = ' '.join(["%02x" % x for x in chars])
-       printable = ''.join(["%s" % ((x <= 127 and
-                                     FILTER[x]) or '.') for x in chars])
-       result.append("%04x  %-*s  %s\n" % (i, length*3, hex, printable))
-    return ''.join(result)
 
 ##@todo Find a better home for these identifiers (controller)
 RCV_SIZE_DEFAULT = 32768
@@ -35,14 +19,14 @@ LISTEN_QUEUE_SIZE = 1
 
 class VirtualTunnel(Thread):
     """
-    Class abstracting the control interface to the switch.  
+    Class abstracting the control interface to the switch.
 
     For receiving messages, two mechanism will be implemented.  First,
     query the interface with poll.  Second, register to have a
     function called by message type.  The callback is passed the
     message type as well as the raw packet (or message object)
 
-    One of the main purposes of this object is to translate between network 
+    One of the main purposes of this object is to translate between network
     and host byte order.  'Above' this object, things should be in host
     byte order.
 
@@ -57,7 +41,7 @@ class VirtualTunnel(Thread):
     upon connecting to the switch
     @var switch If not None, do an active connection to the switch
     @var host The host to use for connect
-    @var port The port to connect on 
+    @var port The port to connect on
     @var packets_total Total number of packets received
     @var packets_expired Number of packets popped from queue as queue full
     @var packets_handled Number of packets handled by something
@@ -113,13 +97,15 @@ class VirtualTunnel(Thread):
         self.pkt_in_dropped = 0 # Total dropped packet ins
         self.transact_to = 15 # Transact timeout default value; add to config
 
-        # Transaction and message type waiting variables 
+        # Transaction and message type waiting variables
         #   xid_cv: Condition variable (semaphore) for packet waiters
         #   xid: Transaction ID being waited on
         #   xid_response: Transaction response message
         self.xid_cv = Condition()
         self.xid = None
         self.xid_response = None
+
+        self.debug = False
 
         self.buffered_input = ""
 
@@ -152,7 +138,7 @@ class VirtualTunnel(Thread):
             # TODO dont drop expected packet ins
             if self.pkt_in_run > self.pkt_in_filter_limit:
                 self.logger.debug("Dropped %d packet ins (%d total)"
-                            % ((self.pkt_in_run - 
+                            % ((self.pkt_in_run -
                                 self.pkt_in_filter_limit),
                                 self.pkt_in_dropped))
             self.pkt_in_run = 0
@@ -163,7 +149,7 @@ class VirtualTunnel(Thread):
         """
         Check for all packet handling conditions
 
-        Parse and verify message 
+        Parse and verify message
         Check if XID matches something waiting
         Check if message is being expected for a poll operation
         Check if keep alive is on and message is an echo request
@@ -176,15 +162,36 @@ class VirtualTunnel(Thread):
         """
 
         # snag any left over data from last read()
-        print(pkt[1])
-        # = self.buffered_input + pkt
-        #self.buffered_input = ""
-        print(hex_dump_buffer(pkt[0]))
+        # Parse the header to get type
+        offset, payload_len, subtype, nxp_sniffer = lowpan.message.parse_header(pkt[0])
 
-        # end of 'while offset < len(pkt)'
-        #   note that if offset = len(pkt), this is
-        #   appends a harmless empty string
-        #self.buffered_input += pkt[offset:]
+
+        # Extract the raw message bytes
+        rawmsg = pkt[0][offset : offset + payload_len]
+        if self.debug:
+            print(pkt[1])
+            print(generic_util.hex_dump_buffer(rawmsg))
+
+        # Now check for message handlers; preference is given to
+        # handlers for a specific packet
+        handled = False
+        if subtype in self.handlers.keys():
+            handled = self.handlers[subtype](self, nxp_sniffer, rawmsg)
+        if not handled and ("all" in self.handlers.keys()):
+            handled = self.handlers["all"](self, nxp_sniffer, rawmsg)
+
+        if not handled: # Not handled, enqueue
+            with self.packets_cv:
+                if len(self.packets) >= self.max_pkts:
+                    self.packets.pop(0)
+                    self.packets_expired += 1
+                self.packets.append((nxp_sniffer, rawmsg))
+                self.packets_cv.notify_all()
+            self.packets_total += 1
+        else:
+            self.packets_handled += 1
+            self.logger.debug("Message handled by callback")
+
 
     def _socket_ready_handle(self, s):
         """
@@ -201,10 +208,10 @@ class VirtualTunnel(Thread):
                 except:
                     self.logger.warning("Error on switch read")
                     return -1
-      
+
                 if not self.active:
                     return 0
-      
+
                 if len(pkt) == 0:
                     self.logger.warning("Zero-length switch read, %d" % idx)
                 else:
@@ -238,7 +245,7 @@ class VirtualTunnel(Thread):
             self.switch_addr = (self.switch, self.port)
             return soc
         except (StandardError, socket.error) as e:
-            self.logger.error("Could not connect to %s at %d:: %s" % 
+            self.logger.error("Could not connect to %s at %d:: %s" %
                               (self.switch, self.port, str(e)))
         return None
 
@@ -275,12 +282,12 @@ class VirtualTunnel(Thread):
         while self.active:
             try:
                 sel_in, sel_out, sel_err = \
-                    select.select(self.sockets(), [], self.sockets(), None)
+                    select.select(self.sockets(), [], self.sockets(), 5)
             except:
                 print( sys.exc_info())
                 self.logger.error("Select error, disconnecting")
                 self.disconnect()
-   
+
             for s in sel_err:
                 self.logger.error("Got socket error on: " + str(s) + ", disconnecting")
                 self.disconnect()
@@ -312,8 +319,6 @@ class VirtualTunnel(Thread):
                 self.switch_socket = soc
                 self.wakeup()
                 with self.connect_cv:
-                    if self.initial_hello:
-                        self.message_send(cfg_ofp.message.hello())
                     self.connect_cv.notify() # Notify anyone waiting
             else:
                 self.logger.error("Could not actively connect to switch %s",
@@ -325,7 +330,7 @@ class VirtualTunnel(Thread):
                                    timeout=timeout)
 
         return self.switch_socket is not None
-        
+
     def disconnect(self, timeout=-1):
         """
         If connected to a switch, disconnect.
@@ -346,11 +351,11 @@ class VirtualTunnel(Thread):
         """
 
         with self.connect_cv:
-            ofutils.timed_wait(self.connect_cv, 
-                               lambda: True if not self.switch_socket else None, 
+            generic_util.timed_wait(self.connect_cv,
+                               lambda: True if not self.switch_socket else None,
                                timeout=timeout)
         return self.switch_socket is None
-        
+
     def kill(self):
         """
         Force the controller thread to quit
@@ -386,13 +391,13 @@ class VirtualTunnel(Thread):
 
         Only one handler may be registered for a given message type.
 
-        WARNING:  A lock is held during the handler call back, so 
+        WARNING:  A lock is held during the handler call back, so
         the handler should not make any blocking calls
 
-        @param msg_type The type of message to receive.  May be DEFAULT 
+        @param msg_type The type of message to receive.  May be DEFAULT
         for all non-handled packets.  The special type, the string "all"
         will send all packets to the handler.
-        @param handler The function to call when a message of the given 
+        @param handler The function to call when a message of the given
         type is received.
         """
         # Should check type is valid
@@ -405,7 +410,7 @@ class VirtualTunnel(Thread):
         """
         Wait for the next OF message received from the switch.
 
-        @param exp_msg If set, return only when this type of message 
+        @param exp_msg If set, return only when this type of message
         is received (unless timeout occurs).
 
         @param timeout Maximum number of seconds to wait for the message.
@@ -422,14 +427,9 @@ class VirtualTunnel(Thread):
         if exp_msg is None:
             self.logger.warn("DEPRECATED polling for any message class")
             klass = None
-        elif isinstance(exp_msg, int):
-            klass = cfg_ofp.message.message.subtypes[exp_msg]
-        elif issubclass(exp_msg, loxi.OFObject):
-            klass = exp_msg
         else:
             raise ValueError("Unexpected exp_msg argument %r" % exp_msg)
 
-        self.logger.debug("Polling for %s", klass.__name__)
 
         # Take the packet from the queue
         def grab():
@@ -438,11 +438,10 @@ class VirtualTunnel(Thread):
                     self.logger.debug("Got %s message", msg.__class__.__name__)
                     return self.packets.pop(i)
             # Not found
-            self.logger.debug("%s message not in queue", klass.__name__)
             return None
 
         with self.packets_cv:
-            ret = ofutils.timed_wait(self.packets_cv, grab, timeout=timeout)
+            ret = generic_util.timed_wait(self.packets_cv, grab, timeout=timeout)
 
         if ret != None:
             (msg, pkt) = ret
@@ -463,7 +462,7 @@ class VirtualTunnel(Thread):
         """
 
         if msg.xid == None:
-            msg.xid = ofutils.gen_xid()
+            msg.xid = generic_util.gen_xid()
 
         self.logger.debug("Running transaction %d" % msg.xid)
 
@@ -477,7 +476,7 @@ class VirtualTunnel(Thread):
             self.message_send(msg)
 
             self.logger.debug("Waiting for transaction %d" % msg.xid)
-            ofutils.timed_wait(self.xid_cv, lambda: self.xid_response, timeout=timeout)
+            generic_util.timed_wait(self.xid_cv, lambda: self.xid_response, timeout=timeout)
 
             if self.xid_response:
                 (resp, pkt) = self.xid_response
@@ -502,7 +501,7 @@ class VirtualTunnel(Thread):
             raise Exception("no socket")
 
         if msg.xid == None:
-            msg.xid = ofutils.gen_xid()
+            msg.xid = generic_util.gen_xid()
 
         outpkt = msg.pack()
 

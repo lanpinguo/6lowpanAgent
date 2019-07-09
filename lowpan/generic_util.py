@@ -165,3 +165,23 @@ class EventDescriptor():
 
     def fileno(self):
         return self.pipe_rd
+
+FILTER=''.join([(len(repr(chr(x)))==3) and chr(x) or '.'
+                for x in range(256)])
+
+def hex_dump_buffer(src, length=16):
+    """
+    Convert src to a hex dump string and return the string
+    @param src The source buffer
+    @param length The number of bytes shown in each line
+    @returns A string showing the hex dump
+    """
+    result = ["\n"]
+    for i in range(0, len(src), length):		#Python3's range is Python2's xrange. There's no need to wrap an iter around it.
+       chars = src[i:i+length]
+       hex = ' '.join(["%02x" % x for x in chars])
+       printable = ''.join(["%s" % ((x <= 127 and
+                                     FILTER[x]) or '.') for x in chars])
+       result.append("%04x  %-*s  %s\n" % (i, length*3, hex, printable))
+    return ''.join(result)
+

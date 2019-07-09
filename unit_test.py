@@ -4,7 +4,8 @@ import os
 import sys
 import optparse
 import lowpan.message as message
-import lowpan.tunnel as tunnel 
+from lowpan.tunnel import VirtualTunnel
+from lowpan.bridge import Bridge
 import logging
 import lowpan
 from lowpan import config
@@ -74,7 +75,7 @@ dataplane.
                      const="verbose", help="Shortcut for --debug=verbose")
     group.add_option("-q", "--quiet", action="store_const", dest="debug",
                      const="warning", help="Shortcut for --debug=warning")
- 
+
     parser.add_option_group(group)
 
     # Might need this if other parsers want command line
@@ -111,27 +112,31 @@ def logging_setup(config):
 
 
 if __name__ == '__main__':
-	import lowpan.selftest as selftest
-	buf = selftest.test_pkt
-	raw_pkt = message.parse_pkt(buf)
-	#print(type(raw_pkt))
-	#print(raw_pkt)
-	#print(raw_pkt.layers)
-	
-	# Setup global configuration
-	(new_config, args) = config_setup()
-	lowpan.config.update(new_config)
+    import lowpan.selftest as selftest
+    buf = selftest.test_pkt
+    raw_pkt = message.parse_pkt(buf)
+    #print(type(raw_pkt))
+    #print(raw_pkt)
+    #print(raw_pkt.layers)
 
-	logging_setup(config)
+    # Setup global configuration
+    (new_config, args) = config_setup()
+    lowpan.config.update(new_config)
+
+    logging_setup(config)
 
 
-	vt = tunnel.VirtualTunnel()
-	vt.start()
+    vt = VirtualTunnel()
+    vt.start()
 
-	while True:
-		data = input('>')
-		if data == 'exit':
-			break
-		print(data)
-	vt.kill()
+    bg = Bridge(down_in = vt.poll, down_out = vt.message_send)
+    bg.start()
+
+    while True:
+        data = input('>')
+        if data == 'exit':
+            break
+    print(data)
+    bg.kill()
+    vt.kill()
 
