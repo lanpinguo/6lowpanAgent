@@ -112,9 +112,24 @@ class Bridge(Thread):
         return False
 
     def _pkt_handle(self,pkt):
-        print(pkt[1])
-        print(generic_util.hex_dump_buffer(pkt[0]))
 
+        offset, payload_len, sub_type = lowpan.message.parse_802_15_4_header(pkt[0])
+
+        # Extract the raw message bytes
+        offset += 1 #skip pattern byte
+        rawmsg = pkt[0][offset : offset + payload_len]
+        if self.debug:
+            print(pkt[1])
+            print(generic_util.hex_dump_buffer(rawmsg))
+
+        eth_hdr =  bytes.fromhex("14 75 90 73 55 b4 98 54 1b a2 87 d0 86 dd ")
+
+
+        # Now check for message handlers; preference is given to
+        # handlers for a specific packet
+        # Send to bridge socket
+        if self.veth_socket:
+            self.veth_socket.send((eth_hdr + rawmsg))
 
 
     def wakeup(self):

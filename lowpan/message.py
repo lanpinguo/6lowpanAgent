@@ -438,6 +438,34 @@ class IEEE_802_15_4_MHR():
 
         return
 
+    def mhr_len(self):
+        #Frame control
+        total_len = 2
+        #Sequence number
+        total_len += 1
+
+        #Destination PAN identifier
+        if (self.src_addr_mode != 0) and (self.intra_pan == 0):
+            total_len += 2
+
+        #Destination address
+        if (self.dst_addr_mode == 2):
+            total_len += 2
+        elif (self.dst_addr_mode == 3):
+            total_len += 8
+
+        #Source address
+        if (self.src_addr_mode == 2):
+            total_len += 2
+        elif (self.src_addr_mode == 3):
+            total_len += 8
+
+        #Source PAN identifier
+        if self.dst_addr_mode != 0:
+            total_len += 2
+
+        return total_len
+
     def fcf_unpack(self):
         self.frame_type = self.fcf & 0x7
         self.sec_en  = (self.fcf >> 3) & 0x1
@@ -528,7 +556,9 @@ class IEEE_802_15_4_DATA():
     def __init__(self,frame_len = 0, mhr = None):
         self.subclass = None
 
+        self.pattern = None
         self.frame_len = frame_len
+        self.mhr_len = 0
         self.mhr = mhr
         self.payload = None
         self.mfr = 0
@@ -543,7 +573,9 @@ class IEEE_802_15_4_DATA():
     def unpack(reader):
         obj = IEEE_802_15_4_DATA()
         obj.mhr = IEEE_802_15_4_MHR.unpack(reader)
+        obj.mhr_len = obj.mhr.mhr_len()
         #obj.payload = reader.read("!")
+        obj.pattern = reader.peek("!B")[0]
         obj.mfr = reader.read("!H")[0]
         return obj
 
@@ -702,6 +734,14 @@ def parse_header(buf):
         raise lowpan.ProtocolError("too short to be an 802.15.4 packet")
     l_sniffer = NXP_802_15_4_Sniffer.unpack(lowpan.generic_util.BufReader(buf))
     return l_sniffer.hdr_len,l_sniffer.len, l_sniffer.subtype, l_sniffer
+
+
+def parse_802_15_4_header(buf):
+    if len(buf) < 8:
+        raise lowpan.ProtocolError("too short to be an 802.15.4 packet")
+    data = IEEE_802_15_4_DATA.unpack(lowpan.generic_util.BufReader(buf))
+    return data.mhr_len,(len(buf) - 2),data.pattern
+
 
 def parse_message(buf):
     da, sa, eth_type = parse_header(buf)
