@@ -18,9 +18,32 @@ ETH_P_ALL = 0x03
 RCV_SIZE_DEFAULT = 32768
 
 
-##@todo Find a better home for these identifiers (controller)
-RCV_SIZE_DEFAULT = 32768
-LISTEN_QUEUE_SIZE = 1
+def chksum(sum, data, length):
+
+    for i in range(0,length,2):   #At least two more bytes
+        t = (data[i] << 8) + data[i + 1]
+        sum += t
+        if(sum < t) :
+            sum += 1       #carry
+
+    if(length % 2):
+        t = (data[length - 1] << 8) + 0
+        sum += t
+        if(sum < t) :
+          sum += 1       #carry
+
+    #Return sum in host byte order.
+    return (sum & 0xFFFF)
+
+
+def icmp6chksum(data,length):
+    payload_len = (data[4] << 8) + data[5]
+    next_header = 58
+    sum = payload_len + next_header
+    sum = chksum(sum,data[8: 8+32],32)
+    sum = chksum(sum,data[40:],payload_len)
+
+    return(sum & 0xFFFF)
 
 class Bridge(Thread):
     """
@@ -121,6 +144,9 @@ class Bridge(Thread):
         if self.debug:
             print(pkt[1])
             print(generic_util.hex_dump_buffer(rawmsg))
+
+        #re-caculate checksum
+
 
         eth_hdr =  bytes.fromhex("14 75 90 73 55 b4 98 54 1b a2 87 d0 86 dd ")
 

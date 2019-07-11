@@ -18,6 +18,13 @@ ff 02 00 00 00 00 00 00 00 00 00 00 00 00 00 1a \
 
 test_pkt = bytes.fromhex(test_pkt_str)
 
+#icmpv6 checksum = 0x7e25
+icmpv6_test_str = """\
+60 00 00 00 00 08 3a ff fe 80 00 00 00 00 00 00 \
+00 00 00 ff fe 00 00 12 ff 02 00 00 00 00 00 00 \
+00 00 00 00 00 00 00 02 85 00 00 00 00 00 00 00 \
+"""
+icmpv6_test = bytes.fromhex(icmpv6_test_str)
 
 
 if __name__ == '__main__':
