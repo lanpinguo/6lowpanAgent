@@ -48,7 +48,7 @@ class VirtualTunnel(Thread):
     @var dbg_state Debug indication of state
     """
 
-    def __init__(self, switch=None, host='192.168.2.200', port=1024, max_pkts=1024):
+    def __init__(self, bdg_unix_addr = None ,tun_unix_addr = 'uds_tunnel', host='192.168.2.200', port=1024, max_pkts=1024):
         Thread.__init__(self)
         # Socket related
         self.rcv_size = RCV_SIZE_DEFAULT
@@ -85,8 +85,8 @@ class VirtualTunnel(Thread):
 
         # Settings
         self.max_pkts = max_pkts
-        self.switch = switch
-        self.passive = not self.switch
+        self.bdg_unix_addr = bdg_unix_addr
+        self.tun_unix_addr = tun_unix_addr
         self.host = host
         self.port = port
         self.dbg_state = "init"
@@ -110,18 +110,30 @@ class VirtualTunnel(Thread):
         self.buffered_input = ""
 
         # Create listen socket
-        if self.passive:
-            self.logger.info("Create/listen at " + self.host + ":" +
-                             str(self.port))
-            ai = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC,
-                                    socket.SOCK_DGRAM, 0, socket.AI_PASSIVE)
-            # Use first returned addrinfo
-            (family, socktype, proto, name, sockaddr) = ai[0]
-            self.listen_socket = socket.socket(family, socktype)
-            self.listen_socket.setsockopt(socket.SOL_SOCKET,
-                                          socket.SO_REUSEADDR, 1)
-            self.listen_socket.bind(sockaddr)
-            self.switch_socket = self.listen_socket
+        self.logger.info("Create/listen at " + self.host + ":" +
+                         str(self.port))
+        ai = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC,
+                                socket.SOCK_DGRAM, 0, socket.AI_PASSIVE)
+        # Use first returned addrinfo
+        (family, socktype, proto, name, sockaddr) = ai[0]
+        self.listen_socket = socket.socket(family, socktype)
+        self.listen_socket.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_REUSEADDR, 1)
+        self.listen_socket.bind(sockaddr)
+        self.switch_socket = self.listen_socket
+
+
+        # Make sure the socket does not already exist
+        try:
+            os.unlink(self.tun_unix_addr)
+        except OSError:
+            if os.path.exists(self.tun_unix_addr):
+                raise
+        self.bridge_socket = socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM)
+        # Bind the socket to the port
+        self.logger.info("Create/listen at " + str(self.tun_unix_addr))
+        self.bridge_socket.bind(self.tun_unix_addr)
+
 
     def filter_packet(self, rawmsg, hdr):
         """
@@ -172,9 +184,16 @@ class VirtualTunnel(Thread):
             print(pkt[1])
             print(generic_util.hex_dump_buffer(rawmsg))
 
+
+
         # Now check for message handlers; preference is given to
         # handlers for a specific packet
         handled = False
+        # Send to bridge socket
+        if self.bdg_unix_addr:
+            self.bridge_socket.sendto(rawmsg,self.bdg_unix_addr)
+            handled = True
+
         if subtype in self.handlers.keys():
             handled = self.handlers[subtype](self, nxp_sniffer, rawmsg)
         if not handled and ("all" in self.handlers.keys()):
@@ -259,7 +278,7 @@ class VirtualTunnel(Thread):
         """
         Return list of sockets to select on.
         """
-        socs = [self.listen_socket, self.switch_socket, self.waker]
+        socs = [self.listen_socket, self.bridge_socket, self.waker]
         return [x for x in socs if x]
 
     def run(self):
@@ -282,7 +301,7 @@ class VirtualTunnel(Thread):
         while self.active:
             try:
                 sel_in, sel_out, sel_err = \
-                    select.select(self.sockets(), [], self.sockets(), 5)
+                    select.select(self.sockets(), [], self.sockets(), 1)
             except:
                 print( sys.exc_info())
                 self.logger.error("Select error, disconnecting")
@@ -308,28 +327,8 @@ class VirtualTunnel(Thread):
         @param timeout Block for up to timeout seconds. Pass -1 for the default.
         @return Boolean, True if connected
         """
+        pass
 
-        if not self.passive:  # Do active connection now
-            self.logger.info("Attempting to connect to %s on port %s" %
-                             (self.switch, str(self.port)))
-            soc = self.active_connect()
-            if soc:
-                self.logger.info("Connected to %s", self.switch)
-                self.dbg_state = "running"
-                self.switch_socket = soc
-                self.wakeup()
-                with self.connect_cv:
-                    self.connect_cv.notify() # Notify anyone waiting
-            else:
-                self.logger.error("Could not actively connect to switch %s",
-                                  self.switch)
-                self.active = False
-        else:
-            with self.connect_cv:
-                generic_util.timed_wait(self.connect_cv, lambda: self.switch_socket,
-                                   timeout=timeout)
-
-        return self.switch_socket is not None
 
     def disconnect(self, timeout=-1):
         """
@@ -343,6 +342,10 @@ class VirtualTunnel(Thread):
                 self.packets = []
             with self.connect_cv:
                 self.connect_cv.notifyAll()
+        if self.bridge_socket:
+             self.bridge_socket.close()
+
+
 
     def wait_disconnected(self, timeout=-1):
         """

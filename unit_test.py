@@ -126,10 +126,10 @@ if __name__ == '__main__':
     logging_setup(config)
 
 
-    vt = VirtualTunnel()
+    vt = VirtualTunnel(tun_unix_addr = 'uds_tun_0',bdg_unix_addr = 'uds_bridge_0')
     vt.start()
 
-    bg = Bridge(down_in = vt.poll, down_out = vt.message_send)
+    bg = Bridge(tun_unix_addr = 'uds_tun_0',bdg_unix_addr = 'uds_bridge_0')
     bg.start()
 
     while True:

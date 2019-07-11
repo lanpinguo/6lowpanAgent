@@ -14,6 +14,8 @@ from threading import Condition
 from lowpan import generic_util
 import lowpan
 
+ETH_P_ALL = 0x03
+RCV_SIZE_DEFAULT = 32768
 
 
 ##@todo Find a better home for these identifiers (controller)
@@ -25,9 +27,10 @@ class Bridge(Thread):
     Class abstracting the bridge interface to the agent.
     """
 
-    def __init__(self, down_in =None, down_out = None):
+    def __init__(self, veth = 'veth0', tun_unix_addr = None,bdg_unix_addr = 'uds_bridge'):
         Thread.__init__(self)
 
+        self.rcv_size = RCV_SIZE_DEFAULT
 
         self.tx_lock = Lock()
 
@@ -55,9 +58,8 @@ class Bridge(Thread):
         self.packet_in_count = 0
 
         # Settings
-        self.down_in = down_in
-        self.down_out = down_out
-
+        self.tun_unix_addr = tun_unix_addr
+        self.bdg_unix_addr = bdg_unix_addr
         self.dbg_state = "init"
         self.logger = logging.getLogger("Bridge")
         self.filter_packet_in = False # Drop "excessive" packet ins
@@ -70,7 +72,22 @@ class Bridge(Thread):
 
         self.debug = False
 
+        # Create socket
+        self.veth = veth
+        self.logger.info("Create  at " + str(self.veth))
+        self.veth_socket = socket.socket(socket.PF_PACKET, socket.SOCK_RAW, 0)
+        self.veth_socket.bind((self.veth,ETH_P_ALL))
 
+        # Make sure the socket does not already exist
+        try:
+            os.unlink(self.bdg_unix_addr)
+        except OSError:
+            if os.path.exists(self.bdg_unix_addr):
+                raise
+        self.tunnel_socket = socket.socket(socket.AF_UNIX,socket.SOCK_DGRAM)
+        # Bind the socket to the port
+        self.logger.info("Create/listen at " + str(self.bdg_unix_addr))
+        self.tunnel_socket.bind(self.bdg_unix_addr)
 
     def filter_packet(self, rawmsg, hdr):
         """
@@ -95,8 +112,8 @@ class Bridge(Thread):
         return False
 
     def _pkt_handle(self,pkt):
-
-        print(generic_util.hex_dump_buffer(pkt))
+        print(pkt[1])
+        print(generic_util.hex_dump_buffer(pkt[0]))
 
 
 
@@ -105,6 +122,50 @@ class Bridge(Thread):
         Wake up the event loop, presumably from another thread.
         """
         self.waker.notify()
+
+    def sockets(self):
+        """
+        Return list of sockets to select on.
+        """
+        socs = [self.veth_socket, self.tunnel_socket]
+        return [x for x in socs if x]
+
+    def _socket_ready_handle(self, s):
+        """
+        Handle an input-ready socket
+
+        @param s The socket object that is ready
+        @returns 0 on success, -1 on error
+        """
+
+        if s and s == self.tunnel_socket:
+            try:
+                pkt = self.tunnel_socket.recvfrom(self.rcv_size)
+            except:
+                self.logger.warning("Error on switch read")
+                return -1
+
+            self._pkt_handle(pkt)
+
+        elif s and s == self.veth_socket:
+            try:
+                pkt = self.veth_socket.recv(self.rcv_size)
+            except:
+                self.logger.warning("Error on switch read")
+                return -1
+
+            if not self.active:
+                return 0
+
+            if len(pkt) == 0: # Still no packet
+                self.logger.warning("Zero-length switch read; closing cxn")
+                self.logger.info(str(self))
+                return -1
+        else:
+            self.logger.error("Unknown socket ready: " + str(s))
+            return -1
+
+        return 0
 
 
     def run(self):
@@ -125,9 +186,22 @@ class Bridge(Thread):
         self.dbg_state = "running"
 
         while self.active:
-            sniffer,raw_msg = self.down_in(exp_msg=None, timeout = 2)
-            if raw_msg:
-                self._pkt_handle(raw_msg)
+            try:
+                sel_in, sel_out, sel_err = \
+                    select.select(self.sockets(), [], self.sockets(), 1)
+            except:
+                print( sys.exc_info())
+                self.logger.error("Select error, disconnecting")
+                self.disconnect()
+
+            for s in sel_err:
+                self.logger.error("Got socket error on: " + str(s) + ", disconnecting")
+                self.disconnect()
+
+            for s in sel_in:
+                if self._socket_ready_handle(s) == -1:
+                    self.disconnect()
+
 
         # End of main loop
         self.dbg_state = "closing"
