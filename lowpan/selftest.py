@@ -26,6 +26,15 @@ icmpv6_test_str = """\
 """
 icmpv6_test = bytes.fromhex(icmpv6_test_str)
 
+#icmpv6 checksum = 0xc4a5
+icmpv6_test_str2 = """\
+60 00 00 00 00 06 3a 40 fe 80 00 00 00 00 00 00 \
+02 12 4b 00 10 05 fd f1 ff 02 00 00 00 00 00 00 \
+00 00 00 00 00 00 00 1a 9b 00 00 00 47 72 \
+"""
+icmpv6_test2 = bytes.fromhex(icmpv6_test_str2)
+
+
 
 if __name__ == '__main__':
 	print(type(test_pkt))

@@ -10,6 +10,41 @@ import lowpan
 import lowpan.generic_util
 
 
+IPv6_IPH_LEN = 40
+IPv6_IPADDR_LEN = 16
+
+def chksum(sum, data, length):
+
+    for i in range(0,length,2):   #At least two more bytes
+        t = (data[i] << 8) + data[i + 1]
+        sum += t
+        sum = (sum >> 16) + (sum & 0xFFFF)
+
+    if(length % 2):
+        t = (data[length - 1] << 8) + 0
+        sum += t
+        sum = (sum >> 16) + (sum & 0xFFFF)
+
+    #Return sum in host byte order.
+    return (sum & 0xFFFF)
+
+
+def icmp6chksum(data,length = 0):
+    payload_len = (data[4] << 8) + data[5]
+
+    #upper-layer protocol  58 for ICMPv6
+    next_header = 58
+
+    #Pseudo ip header
+    sum = payload_len + next_header
+
+    #IPv6 src-addr offset 8 from IP layer, src + dst address len is 16*2
+    sum = chksum(sum,data[8: 8+32],32)
+
+    sum = chksum(sum,data[IPv6_IPH_LEN:],payload_len)
+
+    return(sum & 0xFFFF)
+
 class message(lowpan.LPObject):
     subtypes = {}
 
