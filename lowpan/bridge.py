@@ -11,7 +11,7 @@ import logging
 from threading import Thread
 from threading import Lock
 from threading import Condition
-from lowpan import generic_util
+from lowpan import util
 import lowpan
 
 ETH_P_ALL = 0x03
@@ -32,7 +32,7 @@ class Bridge(Thread):
         self.tx_lock = Lock()
 
         # Used to wake up the event loop from another thread
-        self.waker = generic_util.EventDescriptor()
+        self.waker = util.EventDescriptor()
 
         # Counters
         self.socket_errors = 0
@@ -117,7 +117,7 @@ class Bridge(Thread):
         rawmsg = pkt[0][offset : offset + payload_len]
         if self.debug:
             print(pkt[1])
-            print(generic_util.hex_dump_buffer(rawmsg))
+            print(util.hex_dump_buffer(rawmsg))
         msg = bytearray(rawmsg)
         #re-caculate checksum
         chksum_offset = lowpan.message.IPv6_IPH_LEN + 2
@@ -129,14 +129,21 @@ class Bridge(Thread):
         msg[chksum_offset] = (new_chksum >> 8) & 0xFF
         msg[chksum_offset + 1] = (new_chksum) & 0xFF
 
-        eth_hdr =  bytes.fromhex("14 75 90 73 55 b4 98 54 1b a2 87 d0 86 dd ")
+        eth_hdr =  bytes.fromhex("0a 4b 7e 46 46 15 98 54 1b a2 87 d0 86 dd ")
+        eth_fcs =  bytearray(4)
 
+        #update fcs
+        fcs = util.crc32((eth_hdr + msg))
+        eth_fcs[0] = fcs & 0xFF
+        eth_fcs[1] = (fcs>>8) & 0xFF
+        eth_fcs[2] = (fcs>>16) & 0xFF
+        eth_fcs[3] = (fcs>>24) & 0xFF
 
         # Now check for message handlers; preference is given to
         # handlers for a specific packet
         # Send to bridge socket
         if self.veth_socket:
-            self.veth_socket.send((eth_hdr + msg))
+            self.veth_socket.send((eth_hdr + msg + eth_fcs))
 
 
     def wakeup(self):
@@ -309,7 +316,7 @@ class Bridge(Thread):
             return None
 
         with self.packets_cv:
-            ret = generic_util.timed_wait(self.packets_cv, grab, timeout=timeout)
+            ret = util.timed_wait(self.packets_cv, grab, timeout=timeout)
 
         if ret != None:
             (msg, pkt) = ret
@@ -342,7 +349,7 @@ class Bridge(Thread):
             self.message_send(msg)
 
             self.logger.debug("Waiting for transaction %d" % msg.xid)
-            generic_util.timed_wait(self.xid_cv, lambda: self.xid_response, timeout=timeout)
+            util.timed_wait(self.xid_cv, lambda: self.xid_response, timeout=timeout)
 
             if self.xid_response:
                 (resp, pkt) = self.xid_response

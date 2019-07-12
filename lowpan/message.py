@@ -7,7 +7,7 @@ Created on Tue Jun 25 20:04:03 2019
 
 import struct
 import lowpan
-import lowpan.generic_util
+import lowpan.util
 
 
 IPv6_IPH_LEN = 40
@@ -767,25 +767,25 @@ class PACKET(lowpan.LPObject):
 def parse_header(buf):
     if len(buf) < 8:
         raise lowpan.ProtocolError("too short to be an 802.15.4 packet")
-    l_sniffer = NXP_802_15_4_Sniffer.unpack(lowpan.generic_util.BufReader(buf))
+    l_sniffer = NXP_802_15_4_Sniffer.unpack(lowpan.util.BufReader(buf))
     return l_sniffer.hdr_len,l_sniffer.len, l_sniffer.subtype, l_sniffer
 
 
 def parse_802_15_4_header(buf):
     if len(buf) < 8:
         raise lowpan.ProtocolError("too short to be an 802.15.4 packet")
-    data = IEEE_802_15_4_DATA.unpack(lowpan.generic_util.BufReader(buf))
+    data = IEEE_802_15_4_DATA.unpack(lowpan.util.BufReader(buf))
     return data.mhr_len,(len(buf) - 2),data.pattern
 
 
 def parse_message(buf):
     da, sa, eth_type = parse_header(buf)
-    return message.unpack(lowpan.generic_util.BufReader(buf))
+    return message.unpack(lowpan.util.BufReader(buf))
 
 def parse_pkt(buf):
     if len(buf) < 64:
         raise lowpan.ProtocolError("too short to be an l2 ethernet packet")
-    return PACKET.unpack(lowpan.generic_util.BufReader(buf))
+    return PACKET.unpack(lowpan.util.BufReader(buf))
 
 if __name__ == '__main__':
     import lowpan.selftest as selftest

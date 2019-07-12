@@ -19,6 +19,7 @@ import time
 import os
 import fcntl
 import logging
+import itertools
 
 
 
@@ -185,3 +186,76 @@ def hex_dump_buffer(src, length=16):
        result.append("%04x  %-*s  %s\n" % (i, length*3, hex, printable))
     return ''.join(result)
 
+
+
+
+def ranges(i):
+    for kg in itertools.groupby(enumerate(i), lambda x: x[1] - x[0]):
+        g = list(kg[1])
+        yield g[0][1], g[-1][1]
+
+
+def rangess(i):
+    return ', '.join(map(lambda x: '[{0},{1}]'.format(*x), ranges(i)))
+
+
+table = []
+table_reverse = []
+
+
+def init_tables(poly, reverse=True):
+    global table, table_reverse
+    table = []
+    # build CRC32 table
+    for i in range(256):
+        for j in range(8):
+            if i & 1:
+                i >>= 1
+                i ^= poly
+            else:
+                i >>= 1
+        table.append(i)
+    assert len(table) == 256, "table is wrong size"
+    # build reverse table
+    if reverse:
+        table_reverse = []
+        found_none = set()
+        found_multiple = set()
+        for i in range(256):
+            found = []
+            for j in range(256):
+                if table[j] >> 24 == i:
+                    found.append(j)
+            table_reverse.append(tuple(found))
+            if not found:
+                found_none.add(i)
+            elif len(found) > 1:
+                found_multiple.add(i)
+        assert len(table_reverse) == 256, "reverse table is wrong size"
+        if found_multiple:
+            logging.warn('Multiple table entries have an MSB in {0}'.format(
+                rangess(found_multiple)))
+        if found_none:
+            logging.error('no MSB in the table equals bytes in {0}'.format(
+                rangess(found_none)))
+
+def reverseBits(x):
+    # http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
+    # http://stackoverflow.com/a/20918545
+    x = ((x & 0x55555555) << 1) | ((x & 0xAAAAAAAA) >> 1)
+    x = ((x & 0x33333333) << 2) | ((x & 0xCCCCCCCC) >> 2)
+    x = ((x & 0x0F0F0F0F) << 4) | ((x & 0xF0F0F0F0) >> 4)
+    x = ((x & 0x00FF00FF) << 8) | ((x & 0xFF00FF00) >> 8)
+    x = ((x & 0x0000FFFF) << 16) | ((x & 0xFFFF0000) >> 16)
+    return x & 0xFFFFFFFF
+
+def crc32(data, accum=0,poly=0x04C11DB7):
+
+    if len(table) == 0:
+        init_tables(poly=reverseBits(poly),reverse=False)
+
+    accum = ~accum
+    for b in data:
+        accum = table[(accum ^ b) & 0xFF] ^ ((accum >> 8) & 0x00FFFFFF)
+    accum = ~accum
+    return accum & 0xFFFFFFFF

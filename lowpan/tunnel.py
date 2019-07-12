@@ -8,7 +8,7 @@ import logging
 from threading import Thread
 from threading import Lock
 from threading import Condition
-from lowpan import generic_util
+from lowpan import util
 import lowpan
 
 
@@ -60,7 +60,7 @@ class VirtualTunnel(Thread):
         self.tx_lock = Lock()
 
         # Used to wake up the event loop from another thread
-        self.waker = generic_util.EventDescriptor()
+        self.waker = util.EventDescriptor()
 
         # Counters
         self.socket_errors = 0
@@ -182,7 +182,7 @@ class VirtualTunnel(Thread):
         rawmsg = pkt[0][offset : offset + payload_len]
         if self.debug:
             print(pkt[1])
-            print(generic_util.hex_dump_buffer(rawmsg))
+            print(util.hex_dump_buffer(rawmsg))
 
 
 
@@ -354,7 +354,7 @@ class VirtualTunnel(Thread):
         """
 
         with self.connect_cv:
-            generic_util.timed_wait(self.connect_cv,
+            util.timed_wait(self.connect_cv,
                                lambda: True if not self.switch_socket else None,
                                timeout=timeout)
         return self.switch_socket is None
@@ -444,7 +444,7 @@ class VirtualTunnel(Thread):
             return None
 
         with self.packets_cv:
-            ret = generic_util.timed_wait(self.packets_cv, grab, timeout=timeout)
+            ret = util.timed_wait(self.packets_cv, grab, timeout=timeout)
 
         if ret != None:
             (msg, pkt) = ret
@@ -465,7 +465,7 @@ class VirtualTunnel(Thread):
         """
 
         if msg.xid == None:
-            msg.xid = generic_util.gen_xid()
+            msg.xid = util.gen_xid()
 
         self.logger.debug("Running transaction %d" % msg.xid)
 
@@ -479,7 +479,7 @@ class VirtualTunnel(Thread):
             self.message_send(msg)
 
             self.logger.debug("Waiting for transaction %d" % msg.xid)
-            generic_util.timed_wait(self.xid_cv, lambda: self.xid_response, timeout=timeout)
+            util.timed_wait(self.xid_cv, lambda: self.xid_response, timeout=timeout)
 
             if self.xid_response:
                 (resp, pkt) = self.xid_response
@@ -504,7 +504,7 @@ class VirtualTunnel(Thread):
             raise Exception("no socket")
 
         if msg.xid == None:
-            msg.xid = generic_util.gen_xid()
+            msg.xid = util.gen_xid()
 
         outpkt = msg.pack()
 
